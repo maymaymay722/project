@@ -24,23 +24,6 @@ import java.util.List;
 public class ImageServlet extends HttpServlet {
 
     /**
-     * 查看图片属性: 既能查看所有, 也能查看指定
-     * @param req
-     * @param resp
-     * @throws ServletException
-     * @throws IOException
-     */
-    @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        // req 对象中包含了请求中的所有信息
-        // resp 对象要生成的结果就放到里面去
-        // 当前这个 doGet 方法就是要根据要求，生成响应
-        resp.setStatus(200);
-        //这个代码就是把 hello 这个字符串放到 http 响应的 body 中了
-        resp.getWriter().write("hello");
-    }
-
-    /**
      * 上传图片
      * @param req
      * @param resp
@@ -82,12 +65,11 @@ public class ImageServlet extends HttpServlet {
         image.setMd5(DigestUtils.md5Hex(fileItem.get()));
         // 自己构造一个路径来保存, 引入时间戳是为了让文件路径能够唯一
         image.setPath("./image/" + image.getMd5());
-        // 存到数据库中
-        ImageDao imageDao = new ImageDao();
 
+        //  d) 将 Image 对象存到数据库中
+        ImageDao imageDao = new ImageDao();
         // 看看数据库中是否存在相同的 MD5 值的图片, 不存在, 返回 null
         Image existImage = imageDao.selectByMd5(image.getMd5());
-
         imageDao.insert(image);
 
         // 2. 获取图片的内容信息, 并且写入磁盘文件
@@ -105,13 +87,70 @@ public class ImageServlet extends HttpServlet {
         }
 
         // 3. 给客户端返回一个结果数据
-        resp.setContentType("application/json; charset=utf-8");
-        resp.getWriter().write("{ \"ok\": true }");
-        //resp.sendRedirect("index.html");
+        //resp.setContentType("application/json; charset=utf-8");
+        //resp.getWriter().write("{ \"ok\": true }");
+        resp.sendRedirect("index.html");
 
         //resp.setContentType("text/html; charset=utf-8");
         //resp.setStatus(200);
         //resp.getWriter().write("加油");
+    }
+
+    /**
+     * 查看图片属性: 既能查看所有, 也能查看指定
+     * @param req
+     * @param resp
+     * @throws ServletException
+     * @throws IOException
+     */
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        // 考虑到查看所有图片属性和查看指定图片属性
+        // 通过是否 URL 中带有 imageId 参数来进行区分.
+        // 存在 imageId 查看指定图片属性, 否则就查看所有图片属性
+        // 例如: URL /image?imageId=100
+        // imageId 的值就是 "100"
+        // 如果 URL 中不存在 imageId 那么返回 null
+        String imageId = req.getParameter("imageId");
+        if (imageId == null || imageId.equals("")) {
+            // 查看所有图片属性
+            selectAll(req, resp);
+        } else {
+            // 查看指定图片
+            selectOne(imageId, resp);
+        }
+
+        // req 对象中包含了请求中的所有信息
+        // resp 对象要生成的结果就放到里面去
+        // 当前这个 doGet 方法就是要根据要求，生成响应
+        //resp.setStatus(200);
+        //这个代码就是把 hello 这个字符串放到 http 响应的 body 中了
+        //resp.getWriter().write("hello");
+    }
+
+    private void selectAll(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json; charset=utf-8");
+        // 1. 创建一个 ImageDao 对象, 并查找数据库
+        ImageDao imageDao = new ImageDao();
+        List<Image> images = imageDao.selectAll();
+        // 2. 把查找到的结果转成 JSON 格式的字符串, 并且写回给 resp 对象
+        Gson gson = new GsonBuilder().create();
+        //    jsonData 就是一个 json 格式的字符串了, 就和之前约定的格式是一样的了.
+        //    这个方法的核心, gson 帮我们自动完成了大量的格式转换工作
+        //    只要把之前的相关的字段都约定成统一的命名, 下面的操作就可以一步到位的完成整个转换
+        String jsonData = gson.toJson(images);
+        resp.getWriter().write(jsonData);
+    }
+
+    private void selectOne(String imageId, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json; charset=utf-8");
+        // 1. 创建 ImageDao 对象
+        ImageDao imageDao = new ImageDao();
+        Image image = imageDao.selectOne(Integer.parseInt(imageId));
+        // 2. 使用 gson 把查到的数据转成 json 格式, 并写回给响应对象
+        Gson gson = new GsonBuilder().create();
+        String jsonData = gson.toJson(image);
+        resp.getWriter().write(jsonData);
     }
 
     /**
@@ -123,6 +162,37 @@ public class ImageServlet extends HttpServlet {
      */
     @Override
     protected void doDelete(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        super.doDelete(req, resp);
+        resp.setContentType("application/json; charset=utf-8");
+        // 1. 先获取到请求中的 imageId
+        String imageId = req.getParameter("imageId");
+        if (imageId == null || imageId.equals("")) {
+            resp.setStatus(200);
+            resp.getWriter().write("{ \"ok\": false, \"reason\": \"解析请求失败\" }");
+            return;
+        }
+
+        // 2. 创建 ImageDao 对象, 查看到该图片对象对应的相关属性(这是为了知道这个图片对应的文件路径)
+        ImageDao imageDao = new ImageDao();
+        Image image = imageDao.selectOne(Integer.parseInt(imageId));
+        if (image == null) {
+            // 此时请求中传入的 id 在数据库中不存在.
+            resp.setStatus(200);
+            resp.getWriter().write("{ \"ok\": false, \"reason\": \"imageId 在数据库中不存在\" }");
+            return;
+        }
+
+        // 3. 删除数据库中的记录
+        imageDao.delete(Integer.parseInt(imageId));
+
+        // 4. 删除本地磁盘文件
+        //File file = new File(image.getPath());
+        //file.delete();
+        Image existImage = imageDao.selectByMd5(image.getMd5());
+        if (existImage == null) {
+            File file = new File(image.getPath());
+            file.delete();
+        }
+        resp.setStatus(200);
+        resp.getWriter().write("{ \"ok\": true }");
     }
 }
