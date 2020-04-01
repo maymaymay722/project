@@ -27,7 +27,8 @@ public class RankServlet extends HttpServlet {
 
         JSONArray jsonArray = new JSONArray();
         try (Connection connection = DBConfig.getConnection()) {
-            String sql = "SELECT author, count(*) AS cnt FROM tangshi GROUP BY author HAVING cnt >= ? ORDER BY cnt DESC";
+
+            String sql = "SELECT author, count(*) AS cnt FROM t_tangshi GROUP BY author HAVING cnt >= ? ORDER BY cnt DESC";
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, condition);
                 try (ResultSet rs = statement.executeQuery()) {
